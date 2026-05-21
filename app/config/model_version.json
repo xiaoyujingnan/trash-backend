@@ -1,0 +1,7 @@
+{
+  "current_model": "v1",
+  "model_path": "detect_model/yolov8s/best.pt",
+  "update_time": "",
+  "version_counter": 2,
+  "pending_path": ""
+}

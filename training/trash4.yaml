@@ -1,0 +1,10 @@
+# 数据集在 backend/datasets；本文件位于 backend/training/
+path: ../datasets
+train: images
+val: images
+nc: 4
+names:
+  0: recyclable
+  1: other
+  2: hazardous
+  3: kitchen
