@@ -25,10 +25,15 @@ class User(db.Model):
 
     @classmethod
     def get_by_username_exact(cls, username: str, **filters):
-        """按用户名精确匹配（区分大小写；MySQL 默认 collation 为不区分）。"""
+        """按用户名精确匹配（区分大小写；MySQL 需 binary，PostgreSQL 默认区分大小写）。"""
         if username is None or str(username) == '':
             return None
-        q = cls.query.filter(func.binary(cls.username) == str(username))
+        name = str(username)
+        dialect = db.get_engine().dialect.name
+        if dialect == 'mysql':
+            q = cls.query.filter(func.binary(cls.username) == name)
+        else:
+            q = cls.query.filter(cls.username == name)
         for key, value in filters.items():
             q = q.filter(getattr(cls, key) == value)
         return q.first()
