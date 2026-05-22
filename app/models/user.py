@@ -29,7 +29,8 @@ class User(db.Model):
         if username is None or str(username) == '':
             return None
         name = str(username)
-        dialect = db.get_engine().dialect.name
+        bind = db.session.get_bind()
+        dialect = bind.dialect.name if bind is not None else 'postgresql'
         if dialect == 'mysql':
             q = cls.query.filter(func.binary(cls.username) == name)
         else:

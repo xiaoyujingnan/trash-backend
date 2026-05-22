@@ -139,7 +139,7 @@ def change_password():
         old_ok = True
     if not old_ok:
         return jsonify({'success': False, 'message': '旧密码不正确'}), 400
-    if check_password_hash(user.password_hash, new_password):
+    if user.password_hash and check_password_hash(user.password_hash, new_password):
         return jsonify({'success': False, 'message': '新密码不能与旧密码相同'}), 400
 
     new_hash = generate_password_hash(new_password)

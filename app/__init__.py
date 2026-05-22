@@ -176,7 +176,11 @@ def create_app(config='config.Config'):
     except Exception:
         logger.warning('reclaim_stale_training_jobs failed', exc_info=True)
 
-    CORS(app)
+    CORS(
+        app,
+        resources={r'/api/*': {'origins': '*'}},
+        supports_credentials=False,
+    )
 
     from app.api import api_bp
 
