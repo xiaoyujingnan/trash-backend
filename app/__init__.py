@@ -182,6 +182,10 @@ def create_app(config='config.Config'):
 
     app.register_blueprint(api_bp, url_prefix='/api')
 
+    @app.route('/api/health')
+    def health():
+        return {'status': 'ok'}, 200
+
     @app.route('/uploads/<path:filename>')
     def uploaded_files(filename):
         return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
