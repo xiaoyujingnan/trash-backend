@@ -5,7 +5,14 @@ api_bp = Blueprint('api', __name__)
 
 @api_bp.route('/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'ok'}), 200
+    from flask import current_app
+
+    rel = (current_app.config.get('ACTIVE_UPLOADED_MODEL_REL') or '').strip()
+    return jsonify({
+        'status': 'ok',
+        'model_ready': bool(rel),
+        'model': rel,
+    }), 200
 
 
 from . import auth  # noqa: F401,E402

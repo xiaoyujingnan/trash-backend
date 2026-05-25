@@ -199,7 +199,7 @@ def read_current_model_label(upload_folder: str) -> str:
     return str(info.get('current_model') or '').strip()
 
 
-def _discover_detect_model_rel(upload_root: Path) -> str | None:
+def _discover_detect_model_rel(upload_root: Path, *, check_usable: bool = True) -> str | None:
     """model_version 未配置时，在 detect_model/ 下找首个可用 .pt。"""
     base = upload_root / 'detect_model'
     if not base.is_dir():
@@ -211,10 +211,69 @@ def _discover_detect_model_rel(upload_root: Path) -> str | None:
     )
     for p in candidates:
         rel = f'detect_model/{p.name}'
-        ok = resolve_detect_model_rel(str(upload_root), rel, check_usable=True)
+        ok = resolve_detect_model_rel(str(upload_root), rel, check_usable=check_usable)
         if ok:
             return ok
     return None
+
+
+def _bundled_model_sources(backend_root: Path) -> list[Path]:
+    root = Path(backend_root).resolve()
+    return [
+        root / 'training' / 'yolo26n.pt',
+        root / 'app' / 'uploads' / 'detect_model' / 'yolo26n-best.pt',
+    ]
+
+
+def _seed_detection_model(
+    upload_root: Path,
+    backend_root: Path,
+    *,
+    target_name: str = 'yolo26n-best.pt',
+) -> str | None:
+    """
+    若 uploads/detect_model 无权重，从仓库内 bundled 路径复制一份。
+    Render 若挂载 Persistent Disk 到 uploads，会遮住 git 里的权重，需从 training/ 等目录种子。
+    """
+    detect_dir = upload_root / 'detect_model'
+    detect_dir.mkdir(parents=True, exist_ok=True)
+    target = detect_dir / target_name
+    if target.is_file():
+        try:
+            if target.stat().st_size > 1024:
+                return f'detect_model/{target_name}'
+        except OSError:
+            pass
+
+    for src in _bundled_model_sources(backend_root):
+        if not src.is_file():
+            continue
+        try:
+            if src.stat().st_size < 1024:
+                continue
+        except OSError:
+            continue
+        try:
+            shutil.copy2(src, target)
+            logger.info('seeded detection model: %s -> %s', src, target)
+            return f'detect_model/{target_name}'
+        except OSError as exc:
+            logger.warning('failed to seed detection model from %s: %s', src, exc)
+    return None
+
+
+def _log_detect_model_diagnostics(upload_root: Path, backend_root: Path) -> None:
+    detect_dir = upload_root / 'detect_model'
+    files: list[str] = []
+    if detect_dir.is_dir():
+        files = sorted(p.name for p in detect_dir.iterdir() if p.is_file())
+    bundled = [str(p) for p in _bundled_model_sources(backend_root) if p.is_file()]
+    logger.warning(
+        'detection model diagnostics: upload_root=%s files=%s bundled=%s',
+        upload_root,
+        files or ['(empty)'],
+        bundled or ['(none)'],
+    )
 
 
 def bootstrap_detection_model(app) -> str:
@@ -223,8 +282,10 @@ def bootstrap_detection_model(app) -> str:
     1) 环境变量 DETECT_MODEL_REL
     2) model_version.json 的 model_path
     3) detect_model/ 目录下最新 .pt
+    4) 从 training/ 等 bundled 路径种子复制
     """
     upload_root = Path(app.config['UPLOAD_FOLDER']).resolve()
+    backend_root = Path(app.config.get('BACKEND_ROOT') or app.root_path).resolve()
     cfg_path = _ensure_model_version_config(str(upload_root))
     (upload_root / 'detect_model').mkdir(parents=True, exist_ok=True)
 
@@ -234,29 +295,47 @@ def bootstrap_detection_model(app) -> str:
     if env_rel:
         rel = env_rel
 
-    ok = resolve_detect_model_rel(str(upload_root), rel, check_usable=True) if rel else None
+    seed_name = Path(rel).name if rel else 'yolo26n-best.pt'
+    seeded = _seed_detection_model(upload_root, backend_root, target_name=seed_name)
+    if not rel and seeded:
+        rel = seeded
+
+    ok = resolve_detect_model_rel(str(upload_root), rel, check_usable=False) if rel else None
     if not ok:
-        ok = _discover_detect_model_rel(upload_root)
-        if ok:
-            doc['model_path'] = ok
-            doc['current_model'] = _model_label_from_rel(ok)
-            doc['update_time'] = _now_str()
-            _write_doc(cfg_path, doc)
-            logger.info('detection model auto-selected: %s', ok)
+        ok = _discover_detect_model_rel(upload_root, check_usable=False)
+    if not ok and seeded:
+        ok = seeded
+    if ok and not doc.get('model_path'):
+        doc['model_path'] = ok
+        doc['current_model'] = _model_label_from_rel(ok)
+        doc['update_time'] = _now_str()
+        _write_doc(cfg_path, doc)
+        logger.info('detection model config initialized: %s', ok)
 
     if ok:
+        _warmup_yolo(str((upload_root / ok).resolve()))
         app.config['ACTIVE_UPLOADED_MODEL_REL'] = ok
         info = get_model_version_info(str(upload_root))
         app.config['CURRENT_MODEL_VERSION'] = info.get('current_model') or ''
-        _warmup_yolo(str((upload_root / ok).resolve()))
-        logger.info(
-            'detection model ready: %s (%s)',
-            ok,
-            app.config['CURRENT_MODEL_VERSION'] or 'unversioned',
-        )
+        if not info.get('model_path_resolved'):
+            app.config['ACTIVE_UPLOADED_MODEL_REL'] = ''
+            app.config['CURRENT_MODEL_VERSION'] = ''
+            ok = ''
+            _log_detect_model_diagnostics(upload_root, backend_root)
+            logger.warning(
+                'detection model file exists but failed to load (configured: %s)',
+                rel or '(empty)',
+            )
+        else:
+            logger.info(
+                'detection model ready: %s (%s)',
+                ok,
+                app.config['CURRENT_MODEL_VERSION'] or 'unversioned',
+            )
     else:
         app.config['ACTIVE_UPLOADED_MODEL_REL'] = ''
         app.config['CURRENT_MODEL_VERSION'] = ''
+        _log_detect_model_diagnostics(upload_root, backend_root)
         logger.warning(
             'detection model not available at startup (configured: %s); '
             'ensure detect_model/*.pt is deployed or set DETECT_MODEL_REL',

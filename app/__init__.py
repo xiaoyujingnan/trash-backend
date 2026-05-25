@@ -157,24 +157,10 @@ def create_app(config='config.Config'):
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'detect_model'), exist_ok=True)
 
-    from app.services.detection import bootstrap_detection_model
-
-    bootstrap_detection_model(app)
-
     db.init_app(app)
     importlib.import_module('app.models')
     with app.app_context():
         db.create_all()
-    _ensure_default_admin(app)
-    _ensure_detection_model_version_column(app)
-    _ensure_pending_sample_unique_constraint(app)
-
-    from app.services.training import reclaim_stale_training_jobs
-
-    try:
-        reclaim_stale_training_jobs(app)
-    except Exception:
-        logger.warning('reclaim_stale_training_jobs failed', exc_info=True)
 
     CORS(
         app,
@@ -189,6 +175,21 @@ def create_app(config='config.Config'):
     @app.route('/health')
     def health_root():
         return {'status': 'ok'}, 200
+
+    from app.services.detection import bootstrap_detection_model
+
+    bootstrap_detection_model(app)
+
+    _ensure_default_admin(app)
+    _ensure_detection_model_version_column(app)
+    _ensure_pending_sample_unique_constraint(app)
+
+    from app.services.training import reclaim_stale_training_jobs
+
+    try:
+        reclaim_stale_training_jobs(app)
+    except Exception:
+        logger.warning('reclaim_stale_training_jobs failed', exc_info=True)
 
     @app.route('/uploads/<path:filename>')
     def uploaded_files(filename):
