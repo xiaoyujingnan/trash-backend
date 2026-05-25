@@ -22,6 +22,43 @@ from app.utils import LetterboxMeta, map_detections_to_orig
 
 _DETECT_MODEL_PREFIX = 'detect_model/'
 
+logger = logging.getLogger(__name__)
+
+_yolo_cache: dict[str, YOLO] = {}
+
+
+def _configure_torch_threads() -> None:
+    try:
+        import torch
+
+        n = max(1, min(4, int(os.getenv('TORCH_NUM_THREADS', '2'))))
+        torch.set_num_threads(n)
+    except Exception:
+        pass
+
+
+_configure_torch_threads()
+
+
+def _get_yolo(weights_path: str) -> YOLO:
+    path = str(Path(weights_path).resolve())
+    if path not in _yolo_cache:
+        _yolo_cache[path] = YOLO(path)
+    return _yolo_cache[path]
+
+
+def _warmup_yolo(weights_path: str, *, imgsz: int = 640) -> None:
+    """启动时预热，避免首次用户检测承担模型加载 + 编译开销。"""
+    try:
+        import numpy as np
+
+        model = _get_yolo(weights_path)
+        dummy = np.zeros((imgsz, imgsz, 3), dtype=np.uint8)
+        model.predict(dummy, imgsz=imgsz, verbose=False, device='cpu')
+        logger.info('detection model warmup finished (%s, imgsz=%s)', weights_path, imgsz)
+    except Exception:
+        logger.warning('detection model warmup failed', exc_info=True)
+
 
 def is_usable_weights_file(path: str | Path) -> bool:
     p = Path(path).resolve()
@@ -33,9 +70,7 @@ def is_usable_weights_file(path: str | Path) -> bool:
     except OSError:
         return False
     try:
-        from ultralytics import YOLO
-
-        YOLO(str(p))
+        _get_yolo(str(p))
         return True
     except Exception:
         return False
@@ -64,8 +99,6 @@ def resolve_detect_model_rel(
 
 
 # --- model version ---
-
-logger = logging.getLogger(__name__)
 
 MODEL_VERSION_REL = 'detect_model/model_version.json'
 
@@ -215,6 +248,7 @@ def bootstrap_detection_model(app) -> str:
         app.config['ACTIVE_UPLOADED_MODEL_REL'] = ok
         info = get_model_version_info(str(upload_root))
         app.config['CURRENT_MODEL_VERSION'] = info.get('current_model') or ''
+        _warmup_yolo(str((upload_root / ok).resolve()))
         logger.info(
             'detection model ready: %s (%s)',
             ok,
@@ -286,9 +320,6 @@ class ModelUnavailableError(Exception):
 # 与 datasets/labels/classes.txt 中类别顺序一致（YOLO 类别 id 0..n-1）
 DEFAULT_CLASS_NAMES = ['recyclable', 'other', 'hazardous', 'kitchen']
 
-# 按权重文件路径缓存 YOLO 实例（避免同一权重重复加载）
-_yolo_cache = {}
-
 
 class DetectionService:
     def __init__(self, upload_root=None, active_uploaded_rel=None):
@@ -320,9 +351,7 @@ class DetectionService:
 
     @staticmethod
     def _get_yolo(weights_path: str):
-        if weights_path not in _yolo_cache:
-            _yolo_cache[weights_path] = YOLO(weights_path)
-        return _yolo_cache[weights_path]
+        return _get_yolo(weights_path)
 
     def detect_image(
         self,
@@ -370,7 +399,14 @@ class DetectionService:
                     raise ValueError("无法读取图像文件")
                 infer_img = display_img
 
-            results = model(infer_img, conf=conf, iou=iou, verbose=False)
+            results = model.predict(
+                infer_img,
+                conf=conf,
+                iou=iou,
+                verbose=False,
+                device='cpu',
+                imgsz=640,
+            )
 
             detected_objects = []
             confidence_scores = []
@@ -497,12 +533,11 @@ class DetectionService:
 
 def clear_yolo_cache(paths=None):
     """训练完成后替换权重时清空缓存；paths 为若干绝对路径字符串时仅移除这些键。"""
-    global _yolo_cache
     if not paths:
         _yolo_cache.clear()
         return
     for p in paths:
-        _yolo_cache.pop(str(p), None)
+        _yolo_cache.pop(str(Path(p).resolve()), None)
 
 
 # --- site detect thresholds ---
