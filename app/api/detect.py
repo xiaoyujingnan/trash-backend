@@ -40,9 +40,11 @@ logger = logging.getLogger(__name__)
 MAX_MODEL_BYTES = 200 * 1024 * 1024
 MODEL_UNAVAILABLE_BODY = {'error': '当前检测功能不可用', 'unavailable': True}
 
+
 def _overwrite_confirmed() -> bool:
     raw = (request.form.get('overwrite') or request.args.get('overwrite') or '').strip().lower()
     return raw in ('1', 'true', 'yes', 'on')
+
 
 def _model_upload_basename(filename: str) -> str:
     """保留上传文件名（仅做路径安全处理，不改为固定名）。"""
@@ -50,6 +52,7 @@ def _model_upload_basename(filename: str) -> str:
     if not base or base in ('.', '..') or '..' in base:
         return ''
     return secure_filename(base) or base
+
 
 def _sync_active_from_config() -> str:
     root = current_app.config['UPLOAD_FOLDER']
@@ -61,8 +64,10 @@ def _sync_active_from_config() -> str:
     current_app.config['CURRENT_MODEL_VERSION'] = ver
     return rel or ''
 
+
 def _upload_root() -> str:
     return current_app.config['UPLOAD_FOLDER']
+
 
 def _active_inference_model_rel() -> str:
     rel = (current_app.config.get('ACTIVE_UPLOADED_MODEL_REL') or '').strip()
@@ -71,10 +76,12 @@ def _active_inference_model_rel() -> str:
         ok = _sync_active_from_config()
     return ok or ''
 
+
 def _current_version_label() -> str:
     return (current_app.config.get('CURRENT_MODEL_VERSION') or '').strip() or read_current_model_label(
         _upload_root()
     )
+
 
 def _model_meta_for_detect() -> dict:
     info = get_model_version_info(_upload_root())
@@ -84,6 +91,7 @@ def _model_meta_for_detect() -> dict:
         'modelPath': info.get('model_path_resolved') or info.get('model_path') or '',
         'modelUpdateTime': info.get('update_time') or '',
     }
+
 
 def _require_detection_service():
     rel = _active_inference_model_rel()
@@ -95,6 +103,7 @@ def _require_detection_service():
         active_uploaded_rel=rel,
     ), settings
 
+
 def _sanitize_detect_settings(user, settings):
     if not isinstance(settings, dict):
         return {}
@@ -103,6 +112,7 @@ def _sanitize_detect_settings(user, settings):
         out.pop('userModelRelative', None)
         out.pop('user_model_relative', None)
     return out
+
 
 def _parse_client_settings() -> dict:
     try:
@@ -114,14 +124,22 @@ def _parse_client_settings() -> dict:
         pass
     return {}
 
+
 def _prepare_detect_settings(user) -> dict:
     settings = _sanitize_detect_settings(user, _parse_client_settings())
-    settings = apply_site_detect_thresholds(settings, _upload_root())
+    cfg_default = float(current_app.config.get('AUTO_INGEST_CONF_THRESHOLD', 0.85))
+    settings = apply_site_detect_thresholds(
+        settings,
+        _upload_root(),
+        auto_ingest_default=cfg_default,
+    )
     settings.update(_model_meta_for_detect())
     return settings
 
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+
 
 def _version_status_payload(for_super_admin: bool = False) -> dict:
     info = get_model_version_info(_upload_root())
@@ -135,6 +153,7 @@ def _version_status_payload(for_super_admin: bool = False) -> dict:
     if for_super_admin:
         body['model_relative_path'] = rel
     return body
+
 
 @api_bp.route('/detect/model', methods=['GET', 'POST'])
 def detection_model():
@@ -215,9 +234,10 @@ def detection_model():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
 @api_bp.route('/admin/detect/settings', methods=['GET', 'PUT'])
 def admin_detect_settings():
-    """全站检测阈值：仅超级管理员可查看与修改。"""
+    """全站检测与样本分流阈值：仅超级管理员可查看与修改。"""
     user, err, status = get_current_user_required()
     if not user:
         return err, status
@@ -225,16 +245,21 @@ def admin_detect_settings():
         return jsonify({'error': '该账号权限不够'}), 403
 
     root = _upload_root()
+    cfg_default = float(current_app.config.get('AUTO_INGEST_CONF_THRESHOLD', 0.85))
     if request.method == 'GET':
-        return jsonify({'success': True, 'settings': read_detect_settings(root)}), 200
+        return jsonify({
+            'success': True,
+            'settings': read_detect_settings(root, auto_ingest_default=cfg_default),
+        }), 200
 
     data = request.get_json(silent=True) or {}
     saved = write_detect_settings(root, data)
     return jsonify({
         'success': True,
         'settings': saved,
-        'message': '全站检测阈值已更新',
+        'message': '全站设置已更新',
     }), 200
+
 
 @api_bp.route('/detect', methods=['POST'])
 def detect_image():
@@ -351,6 +376,7 @@ def detect_image():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
 
 @api_bp.route('/detect/preview', methods=['POST'])
 def detect_preview():

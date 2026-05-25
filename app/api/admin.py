@@ -37,6 +37,7 @@ from . import api_bp
 
 MAX_TRAINING_WEIGHT_BYTES = 200 * 1024 * 1024
 
+
 def _purge_user_uploaded_files(user_id):
     """
     删除用户关联的检测原图、结果图及自定义头像（不删全站共享的 default_user_avatar.png）。
@@ -62,11 +63,13 @@ def _purge_user_uploaded_files(user_id):
         return
     safe_remove_file(path)
 
+
 def _deny_non_super(operator):
     """删除、改角色等仅超级管理员（admin）可用。"""
     if not operator.is_super_admin():
         return jsonify({'success': False, 'message': '该账号权限不够'}), 403
     return None
+
 
 def _deny_status_change(operator, target, is_disabled):
     """
@@ -85,11 +88,13 @@ def _deny_status_change(operator, target, is_disabled):
         return jsonify({'success': False, 'message': '普通管理员仅可禁用或启用普通用户'}), 403
     return None
 
+
 def _user_admin_row(u):
     row = u.to_dict()
     p = u.profile
     row['avatar'] = normalize_avatar_path(p.avatar) if p else ''
     return row
+
 
 def _users_base_query(keyword: str):
     """关键词筛选后的用户查询（未排序、未分组）。"""
@@ -103,6 +108,7 @@ def _users_base_query(keyword: str):
         )
     return query
 
+
 def _users_stats(query):
     return {
         'total': query.count(),
@@ -111,12 +117,14 @@ def _users_stats(query):
         'disabled': query.filter(User.is_disabled.is_(True)).count(),
     }
 
+
 _USER_GROUP_FILTERS = {
     'all': None,
     'admin': User.is_admin.is_(True),
     'user': User.is_admin.is_(False),
     'disabled': User.is_disabled.is_(True),
 }
+
 
 @api_bp.route('/admin/users', methods=['GET'])
 def list_users():
@@ -159,6 +167,7 @@ def list_users():
         'group': group,
     }), 200
 
+
 @api_bp.route('/admin/users/<int:user_id>/role', methods=['PUT'])
 def update_user_role(user_id):
     admin, error_resp, status = get_current_admin()
@@ -183,6 +192,7 @@ def update_user_role(user_id):
     db.session.commit()
     return jsonify({'success': True, 'user': target.to_dict(), 'message': '角色更新成功'}), 200
 
+
 @api_bp.route('/admin/users/<int:user_id>/status', methods=['PUT'])
 def update_user_status(user_id):
     admin, error_resp, status = get_current_admin()
@@ -200,6 +210,7 @@ def update_user_status(user_id):
     target.is_disabled = is_disabled
     db.session.commit()
     return jsonify({'success': True, 'user': target.to_dict(), 'message': '状态更新成功'}), 200
+
 
 @api_bp.route('/admin/users/<int:user_id>', methods=['DELETE'])
 def delete_user(user_id):
@@ -231,6 +242,7 @@ def delete_user(user_id):
 
     return jsonify({'success': True, 'message': '用户删除成功'}), 200
 
+
 def _profile_dict_safe(profile, user=None):
     if not profile:
         return {}
@@ -239,6 +251,7 @@ def _profile_dict_safe(profile, user=None):
     if user:
         d['nickname'] = d.get('nickname') or user.username
     return d
+
 
 @api_bp.route('/admin/users/<int:user_id>/detail', methods=['GET'])
 def get_user_detail(user_id):
@@ -262,6 +275,7 @@ def get_user_detail(user_id):
         'recent_detections': [d.to_dict() for d in recent],
     }), 200
 
+
 def _parse_batch_ids(raw):
     if not isinstance(raw, list):
         return []
@@ -272,6 +286,7 @@ def _parse_batch_ids(raw):
         except (TypeError, ValueError):
             continue
     return sorted(set(out))
+
 
 @api_bp.route('/admin/users/batch', methods=['POST'])
 def batch_user_actions():
@@ -354,6 +369,10 @@ def batch_user_actions():
 
     return jsonify({'success': False, 'message': '不支持的操作类型'}), 400
 
+
+# --- 待审核样本 ---
+
+
 def _parse_bbox_xyxy_from_request(data):
     raw = data.get('bbox_xyxy') or data.get('bbox')
     if raw is None:
@@ -375,6 +394,7 @@ def _parse_bbox_xyxy_from_request(data):
         return None
     return [x1, y1, x2, y2]
 
+
 def _read_image_wh(image_path, upload_folder):
     p = resolve_stored_file_path(image_path, upload_folder)
     if not p or not os.path.isfile(p):
@@ -384,6 +404,7 @@ def _read_image_wh(image_path, upload_folder):
         return None
     h, w = im.shape[:2]
     return w, h
+
 
 def _clip_xyxy_to_image(bbox, w, h):
     w = max(float(w), 1.0)
@@ -396,6 +417,7 @@ def _clip_xyxy_to_image(bbox, w, h):
     if x2 <= x1 + 0.5 or y2 <= y1 + 0.5:
         return None
     return [x1, y1, x2, y2]
+
 
 def _finalize_after_review(det, username=None):
     fin = try_finalize_detection_dataset(
@@ -412,6 +434,7 @@ def _finalize_after_review(det, username=None):
             fin.get('dataset_label'),
         )
     return fin
+
 
 @api_bp.route('/admin/pending-samples', methods=['GET'])
 def list_pending_samples():
@@ -442,6 +465,7 @@ def list_pending_samples():
         'pages': paginated.pages,
         'current_page': page,
     }), 200
+
 
 def _apply_pending_review(ps: PendingSample, admin, data: dict):
     action = (data.get('action') or '').strip().lower()
@@ -533,6 +557,7 @@ def _apply_pending_review(ps: PendingSample, admin, data: dict):
         'box_count': fin.get('box_count', 0),
     }, 200
 
+
 @api_bp.route('/admin/pending-samples/<int:sample_id>/review', methods=['POST'])
 def review_pending_sample(sample_id):
     admin, err, status = get_current_admin()
@@ -549,6 +574,10 @@ def review_pending_sample(sample_id):
     payload, code = _apply_pending_review(ps, admin, data)
     return jsonify(payload), code
 
+
+# --- 训练任务 ---
+
+
 def _list_base_weight_files(training_root: Path) -> list[Path]:
     bases = training_root / 'bases'
     if not bases.is_dir():
@@ -561,6 +590,7 @@ def _list_base_weight_files(training_root: Path) -> list[Path]:
         ),
         key=lambda p: p.name.lower(),
     )
+
 
 def _remove_other_base_weights(training_root: Path, keep: Path) -> None:
     keep_resolved = keep.resolve()
@@ -575,6 +605,7 @@ def _remove_other_base_weights(training_root: Path, keep: Path) -> None:
         except OSError:
             pass
 
+
 def _base_weight_item(weight_path: Path) -> dict:
     rel = f'training/bases/{weight_path.name}'.replace('\\', '/')
     try:
@@ -588,9 +619,11 @@ def _base_weight_item(weight_path: Path) -> dict:
         'builtin': False,
     }
 
+
 def _training_overwrite_confirmed() -> bool:
     raw = (request.form.get('overwrite') or request.args.get('overwrite') or '').strip().lower()
     return raw in ('1', 'true', 'yes', 'on')
+
 
 def _optional_int(val, lo, hi):
     if val is None:
@@ -601,6 +634,7 @@ def _optional_int(val, lo, hi):
         return max(lo, min(hi, int(val)))
     except (TypeError, ValueError):
         return None
+
 
 def _sanitize_device(s):
     if s is None:
@@ -614,12 +648,14 @@ def _sanitize_device(s):
         return 'cpu'
     return s
 
+
 @api_bp.route('/admin/training/device-info', methods=['GET'])
 def training_device_info():
     admin, err, status = get_current_admin()
     if not admin:
         return err, status
     return jsonify(collect_training_device_info()), 200
+
 
 @api_bp.route('/admin/training/base-weights', methods=['GET'])
 def list_training_base_weights():
@@ -630,6 +666,7 @@ def list_training_base_weights():
     training_root = get_training_root(current_app.config)
     items = [_base_weight_item(p) for p in _list_base_weight_files(training_root)]
     return jsonify({'items': items}), 200
+
 
 @api_bp.route('/admin/training/upload-base-weights', methods=['POST'])
 def upload_training_base_weights():
@@ -682,6 +719,7 @@ def upload_training_base_weights():
         'message': f'已上传训练权重 {safe}',
     }), 200
 
+
 @api_bp.route('/admin/training/jobs', methods=['GET'])
 def list_training_jobs():
     admin, err, status = get_current_admin()
@@ -691,6 +729,7 @@ def list_training_jobs():
     jobs = TrainingJob.query.order_by(TrainingJob.id.desc()).limit(limit).all()
     cfg = current_app.config
     return jsonify({'jobs': [enrich_training_job_dict(j, cfg) for j in jobs]}), 200
+
 
 @api_bp.route('/admin/training/jobs', methods=['POST'])
 def create_training_job():
@@ -738,6 +777,7 @@ def create_training_job():
     start_training_job_async(current_app._get_current_object(), job.id)
     return jsonify({'success': True, 'job': enrich_training_job_dict(job, cfg)}), 201
 
+
 @api_bp.route('/admin/training/jobs/<int:job_id>/live', methods=['GET'])
 def training_job_live(job_id):
     admin, err, status = get_current_admin()
@@ -748,6 +788,7 @@ def training_job_live(job_id):
     payload = build_training_live_payload(project_root, current_app.config, job)
     db.session.refresh(job)
     return jsonify({'job': enrich_training_job_dict(job, current_app.config), **payload}), 200
+
 
 @api_bp.route('/admin/training/jobs/<int:job_id>/metrics', methods=['GET'])
 def training_job_metrics(job_id):
@@ -775,6 +816,7 @@ def training_job_metrics(job_id):
         'run_name': metrics.get('run_name') or '',
         'has_metrics': True,
     }), 200
+
 
 @api_bp.route('/admin/training/jobs/<int:job_id>/stop', methods=['POST'])
 def training_job_stop(job_id):

@@ -1,5 +1,6 @@
 {
-  "conf": 0.5,
+  "conf": 0.7,
   "nms": 0.45,
-  "update_time": "2026-05-21 22:58:53"
+  "autoIngestThreshold": 0.8,
+  "update_time": "2026-05-24 23:30:56"
 }

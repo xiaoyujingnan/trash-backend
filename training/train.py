@@ -6,10 +6,12 @@ from werkzeug.utils import secure_filename
 
 ROOT = Path(__file__).resolve().parent
 
+
 def _resolve_under_training(p: Path) -> Path:
     if p.is_absolute():
         return p.resolve()
     return (ROOT / p).resolve()
+
 
 def main():
     parser = argparse.ArgumentParser(description="YOLOv8 垃圾识别训练脚本")
@@ -98,6 +100,7 @@ def main():
         verbose=True,
         workers=0,
     )
+
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,7 @@
 from sqlalchemy import func
 from app import db
 
+
 class UserProfile(db.Model):
     __tablename__ = 'user_profile'
 

@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 def _issue_jwt_token(payload: dict) -> str:
-    """PyJWT 2.x 返回 str；统一为 JSON 可序列化字符串。"""
     token = jwt.encode(payload, current_app.config['SECRET_KEY'], algorithm='HS256')
     return token if isinstance(token, str) else token.decode('utf-8')
 
@@ -27,6 +26,7 @@ def _password_matches(user: User, password: str, *, email_login: bool) -> bool:
         return bool(stored) and check_password_hash(stored, password)
     stored = user.password_hash
     return bool(stored) and check_password_hash(stored, password)
+
 
 def resolve_bearer_user():
     """无 Authorization：匿名 (None, None)；有 Bearer 则解析用户。"""
@@ -52,6 +52,7 @@ def resolve_bearer_user():
     except jwt.InvalidTokenError:
         return None, (jsonify({'error': '登录信息无效'}), 401)
 
+
 def get_current_user_required():
     user, err = resolve_bearer_user()
     if err:
@@ -59,6 +60,7 @@ def get_current_user_required():
     if not user:
         return None, jsonify({'error': '未登录或登录已过期'}), 401
     return user, None, None
+
 
 def get_current_user():
     """个人资料等接口：success/message 风格鉴权。"""
@@ -70,6 +72,7 @@ def get_current_user():
     if not user:
         return None, jsonify({'success': False, 'message': '未提供有效授权信息'}), 401
     return user, None, None
+
 
 def get_current_admin():
     auth_header = request.headers.get('Authorization', '')
@@ -94,14 +97,16 @@ def get_current_admin():
     except jwt.InvalidTokenError:
         return None, jsonify({'success': False, 'message': '登录信息无效'}), 401
 
+
 @api_bp.route('/register', methods=['POST'])
 def register():
     try:
         data = request.get_json()
-
+        
         if not data or not data.get('username') or not data.get('email') or not data.get('password') or not data.get('email_password'):
             return jsonify({'success':False,'message':'缺少用户信息'}),400
-
+        
+        # 检查用户是否已存在
         if User.query.filter_by(username=data['username']).first():
             return jsonify({'success':False,'message':'该用户已存在！'}),400
 
@@ -110,19 +115,20 @@ def register():
 
         if User.query.filter_by(email=data['email']).first():
             return jsonify({'success':False,'message': '该邮箱已被绑定！'}), 400
-
+        
+        # 创建新用户
         user = User(
             username=data['username'],
             password_hash=generate_password_hash(data['password']),
             email=data['email'],
             email_password_hash=generate_password_hash(data['email_password']),
         )
-
+        
         db.session.add(user)
         db.session.commit()
-
+        
         return jsonify({'success':True,'message': '注册成功', 'user': user.to_dict()}), 201
-
+        
     except Exception:
         logger.exception('register failed')
         return jsonify({'success':False,'message':'服务器异常，请稍后再试'}),500
@@ -172,6 +178,7 @@ def user_login():
     except Exception:
         logger.exception('user_login failed')
         return jsonify({'success':False,'message':'服务器异常，请稍后再试'}),500
+
 
 @api_bp.route('/admin_login', methods=['POST'])
 def admin_login():

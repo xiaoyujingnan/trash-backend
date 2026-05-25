@@ -1,13 +1,14 @@
 from app import db
 from datetime import datetime
 
+
 class DetectionResult(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     filename = db.Column(db.String(255), nullable=False)
     file_path = db.Column(db.String(500), nullable=False)
     result_path = db.Column(db.String(500), nullable=True)
     detected_objects = db.Column(db.Text, nullable=True)
-
+    # JSON：{ "scores": [...], "settings": { 检测参数, "modelVersion": "111.pt", "modelPath": "detect_model/111.pt", ... } }
     confidence_scores = db.Column(db.Text, nullable=True)
     model_version = db.Column(db.String(32), nullable=True)
     processing_time = db.Column(db.Float, nullable=True)

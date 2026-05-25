@@ -18,7 +18,10 @@ from app.models import PendingSample, User
 from app.services.dataset import set_detection_dataset_paths, try_finalize_detection_dataset
 from app.utils import LetterboxMeta, map_detections_to_orig
 
+# --- weights ---
+
 _DETECT_MODEL_PREFIX = 'detect_model/'
+
 
 def is_usable_weights_file(path: str | Path) -> bool:
     p = Path(path).resolve()
@@ -36,6 +39,7 @@ def is_usable_weights_file(path: str | Path) -> bool:
         return True
     except Exception:
         return False
+
 
 def resolve_detect_model_rel(
     upload_folder: str,
@@ -58,12 +62,17 @@ def resolve_detect_model_rel(
         return None
     return rel.replace('\\', '/')
 
+
+# --- model version ---
+
 logger = logging.getLogger(__name__)
 
 MODEL_VERSION_REL = 'detect_model/model_version.json'
 
+
 def model_version_config_path(upload_folder: str) -> Path:
     return Path(upload_folder).resolve() / 'detect_model' / 'model_version.json'
+
 
 def _ensure_model_version_config(upload_folder: str) -> Path:
     """确保 detect_model/model_version.json 存在。"""
@@ -71,8 +80,10 @@ def _ensure_model_version_config(upload_folder: str) -> Path:
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     return cfg_path
 
+
 def _now_str() -> str:
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
 
 def _default_doc() -> dict[str, Any]:
     return {
@@ -80,6 +91,7 @@ def _default_doc() -> dict[str, Any]:
         'model_path': '',
         'update_time': '',
     }
+
 
 def _read_doc(path: Path) -> dict[str, Any]:
     if not path.is_file():
@@ -97,10 +109,12 @@ def _read_doc(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError, TypeError):
         return _default_doc()
 
+
 def _write_doc(path: Path, doc: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(doc, f, indent=2, ensure_ascii=False)
+
 
 def _model_label_from_rel(rel: str) -> str:
     """从 detect_model/<文件名> 得到展示名（保留扩展名，如 111.pt）。"""
@@ -108,6 +122,7 @@ def _model_label_from_rel(rel: str) -> str:
     if not rel:
         return ''
     return Path(rel).name
+
 
 def _resolve_current_model_label(doc: dict[str, Any], ok_rel: str) -> str:
     """current_model 使用权重文件名；兼容旧版 vN 标记。"""
@@ -119,6 +134,7 @@ def _resolve_current_model_label(doc: dict[str, Any], ok_rel: str) -> str:
     if label:
         return label
     return str(doc.get('current_model') or '').strip()
+
 
 def get_model_version_info(upload_folder: str) -> dict[str, Any]:
     """读取当前版本元数据及权重路径是否可用。"""
@@ -139,13 +155,16 @@ def get_model_version_info(upload_folder: str) -> dict[str, Any]:
         'update_time': str(doc.get('update_time') or '').strip(),
     }
 
+
 def read_active_model_rel(upload_folder: str) -> str:
     info = get_model_version_info(upload_folder)
     return info.get('model_path_resolved') or ''
 
+
 def read_current_model_label(upload_folder: str) -> str:
     info = get_model_version_info(upload_folder)
     return str(info.get('current_model') or '').strip()
+
 
 def bootstrap_detection_model(app) -> str:
     """
@@ -176,6 +195,7 @@ def bootstrap_detection_model(app) -> str:
 
     return ok or ''
 
+
 def _remove_obsolete_model_weights(upload_folder: str, keep_rel: str) -> None:
     """删除 detect_model 下除当前权重外的旧 .pt / .pth 文件。"""
     upload_root = Path(upload_folder).resolve()
@@ -197,6 +217,7 @@ def _remove_obsolete_model_weights(upload_folder: str, keep_rel: str) -> None:
         except OSError as e:
             logger.warning('failed to remove obsolete model weight %s: %s', p, e)
 
+
 def activate_detect_model(upload_folder: str, rel: str) -> dict[str, Any]:
     """将 detect_model 下指定权重设为当前全站模型（须可加载），并移除其它旧权重。"""
     ok = resolve_detect_model_rel(upload_folder, rel, check_usable=True)
@@ -216,14 +237,22 @@ def activate_detect_model(upload_folder: str, rel: str) -> dict[str, Any]:
         'update_time': doc['update_time'],
     }
 
+
+# --- service ---
+
 MODEL_UNAVAILABLE_MESSAGE = '当前检测功能不可用'
+
 
 class ModelUnavailableError(Exception):
     """Raised when the required detection model is not available."""
 
+
+# 与 datasets/labels/classes.txt 中类别顺序一致（YOLO 类别 id 0..n-1）
 DEFAULT_CLASS_NAMES = ['recyclable', 'other', 'hazardous', 'kitchen']
 
+# 按权重文件路径缓存 YOLO 实例（避免同一权重重复加载）
 _yolo_cache = {}
+
 
 class DetectionService:
     def __init__(self, upload_root=None, active_uploaded_rel=None):
@@ -429,6 +458,7 @@ class DetectionService:
 
         return result_image
 
+
 def clear_yolo_cache(paths=None):
     """训练完成后替换权重时清空缓存；paths 为若干绝对路径字符串时仅移除这些键。"""
     global _yolo_cache
@@ -438,21 +468,33 @@ def clear_yolo_cache(paths=None):
     for p in paths:
         _yolo_cache.pop(str(p), None)
 
+
+# --- site detect thresholds ---
+
 DETECT_SETTINGS_FILENAME = 'detect_settings.json'
 DEFAULT_DETECT_CONF = 0.5
 DEFAULT_DETECT_NMS = 0.45
+DEFAULT_AUTO_INGEST = 0.85
+
 
 def _clamp_conf(val: float) -> float:
     return max(0.05, min(0.99, float(val)))
 
+
 def _clamp_nms(val: float) -> float:
     return max(0.1, min(0.95, float(val)))
 
-def read_detect_settings(upload_folder: str) -> dict[str, Any]:
-    """全站检测阈值（uploads/detect_settings.json：conf、nms）。"""
+
+def _clamp_auto_ingest(val: float) -> float:
+    return max(0.01, min(0.99, float(val)))
+
+
+def read_detect_settings(upload_folder: str, *, auto_ingest_default: float = DEFAULT_AUTO_INGEST) -> dict[str, Any]:
+    """全站检测阈值（uploads/detect_settings.json：conf、nms、autoIngestThreshold）。"""
     path = Path(upload_folder).resolve() / DETECT_SETTINGS_FILENAME
     conf = DEFAULT_DETECT_CONF
     nms = DEFAULT_DETECT_NMS
+    auto_ingest = _clamp_auto_ingest(auto_ingest_default)
     update_time = ''
     if path.is_file():
         try:
@@ -465,10 +507,19 @@ def read_detect_settings(upload_folder: str) -> dict[str, Any]:
                 raw_nms = data.get('nms', data.get('nmsThreshold'))
                 if raw_nms is not None:
                     nms = _clamp_nms(raw_nms)
+                raw_auto = data.get('autoIngestThreshold', data.get('auto_ingest_threshold'))
+                if raw_auto is not None:
+                    auto_ingest = _clamp_auto_ingest(raw_auto)
                 update_time = str(data.get('update_time') or '').strip()
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             pass
-    return {'conf': conf, 'nms': nms, 'update_time': update_time}
+    return {
+        'conf': conf,
+        'nms': nms,
+        'autoIngestThreshold': auto_ingest,
+        'update_time': update_time,
+    }
+
 
 def write_detect_settings(upload_folder: str, patch: dict) -> dict[str, Any]:
     current = read_detect_settings(upload_folder)
@@ -492,25 +543,46 @@ def write_detect_settings(upload_folder: str, patch: dict) -> dict[str, Any]:
             current['nms'] = _clamp_nms(patch['nmsThreshold'])
         except (TypeError, ValueError):
             pass
+    if 'autoIngestThreshold' in patch:
+        try:
+            current['autoIngestThreshold'] = _clamp_auto_ingest(patch['autoIngestThreshold'])
+        except (TypeError, ValueError):
+            pass
+    elif 'auto_ingest_threshold' in patch:
+        try:
+            current['autoIngestThreshold'] = _clamp_auto_ingest(patch['auto_ingest_threshold'])
+        except (TypeError, ValueError):
+            pass
     current['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     path = Path(upload_folder).resolve() / DETECT_SETTINGS_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(
-            {'conf': current['conf'], 'nms': current['nms'], 'update_time': current['update_time']},
+            {
+                'conf': current['conf'],
+                'nms': current['nms'],
+                'autoIngestThreshold': current['autoIngestThreshold'],
+                'update_time': current['update_time'],
+            },
             f,
             indent=2,
             ensure_ascii=False,
         )
     return current
 
-def apply_site_detect_thresholds(settings: dict | None, upload_folder: str) -> dict:
-    """识别请求合并全站 conf / nms（映射为 YOLO 的 confidenceThreshold、nmsThreshold）。"""
-    site = read_detect_settings(upload_folder)
+
+def apply_site_detect_thresholds(settings: dict | None, upload_folder: str, *, auto_ingest_default: float = DEFAULT_AUTO_INGEST) -> dict:
+    """识别请求合并全站 conf / nms / autoIngestThreshold。"""
+    site = read_detect_settings(upload_folder, auto_ingest_default=auto_ingest_default)
     out = dict(settings or {})
     out['confidenceThreshold'] = site['conf']
     out['nmsThreshold'] = site['nms']
+    out['autoIngestThreshold'] = site['autoIngestThreshold']
     return out
+
+
+# --- routing ---
+
 
 def auto_ingest_threshold_from_settings(settings: dict | None, default: float = 0.85) -> float:
     """从 settings.autoIngestThreshold 读取；无则回退 config 默认。"""
@@ -524,6 +596,7 @@ def auto_ingest_threshold_from_settings(settings: dict | None, default: float = 
     except (TypeError, ValueError):
         x = float(default)
     return max(0.01, min(0.99, x))
+
 
 def route_detection_sample(flask_app, detection_row, result_dict):
     """
@@ -543,8 +616,15 @@ def route_detection_sample(flask_app, detection_row, result_dict):
     except Exception:
         cs_obj = {}
 
-    cfg_default = float(flask_app.config.get('AUTO_INGEST_CONF_THRESHOLD', 0.85))
-    threshold = auto_ingest_threshold_from_settings(cs_obj.get('settings'), cfg_default)
+    upload_root = flask_app.config['UPLOAD_FOLDER']
+    cfg_default = float(
+        flask_app.config.get('AUTO_INGEST_CONF_THRESHOLD', DEFAULT_AUTO_INGEST)
+    )
+    site = read_detect_settings(upload_root, auto_ingest_default=cfg_default)
+    threshold = auto_ingest_threshold_from_settings(
+        cs_obj.get('settings'),
+        float(site.get('autoIngestThreshold') or cfg_default),
+    )
 
     if not objs:
         routing = {
@@ -617,7 +697,7 @@ def route_detection_sample(flask_app, detection_row, result_dict):
     detection_row.confidence_scores = json.dumps(cs_obj, ensure_ascii=False)
     db.session.commit()
 
-    if pending_cnt == 0 and auto_ok > 0 and flask_app.config.get('ENABLE_DATASET_INGEST', True):
+    if pending_cnt == 0 and auto_ok > 0:
         fin = try_finalize_detection_dataset(
             dataset_root,
             detection_row,

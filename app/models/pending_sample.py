@@ -2,6 +2,7 @@ from app import db
 from datetime import datetime
 from sqlalchemy import UniqueConstraint
 
+
 class PendingSample(db.Model):
     """低置信度检测框：每条对应一次检测中的一框；待管理员审核后写入数据集或丢弃。"""
 
@@ -45,6 +46,7 @@ class PendingSample(db.Model):
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
 
 def delete_pending_samples_for_detection_ids(detection_ids):
     """在删除 detection_result 行之前调用；避免 ORM 将 detection_id 置空违反非空约束。"""

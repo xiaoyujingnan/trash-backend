@@ -56,6 +56,7 @@ _CLASS_TO_MACRO = {
     '其他垃圾': '其他垃圾',
 }
 
+
 def _macro_from_top_detection(detected_objects_json):
     """取置信度最高的一条映射到大类；空或异常归为其他垃圾。"""
     if not detected_objects_json:
@@ -73,11 +74,13 @@ def _macro_from_top_detection(detected_objects_json):
     except Exception:
         return '其他垃圾'
 
+
 def scoped_detection_query(user):
     q = DetectionResult.query
     if not getattr(user, 'is_admin', False):
         q = q.filter(DetectionResult.user_id == user.id)
     return q
+
 
 def _compute_filtered_overview_stats(filtered_query):
     order = ['可回收物', '有害垃圾', '厨余垃圾', '其他垃圾']
@@ -112,6 +115,7 @@ def _compute_filtered_overview_stats(filtered_query):
         'overview_total': total,
     }
 
+
 def _apply_detection_history_filters(query):
     date_from = (request.args.get('date_from') or '').strip()
     date_to = (request.args.get('date_to') or '').strip()
@@ -141,11 +145,13 @@ def _apply_detection_history_filters(query):
             query = query.filter(or_(*conds))
     return query
 
+
 def _remove_detection_files(detection):
     upload_root = current_app.config['UPLOAD_FOLDER']
     for stored in (detection.file_path, detection.result_path):
         path = resolve_stored_file_path(stored, upload_root)
         safe_remove_file(path)
+
 
 @api_bp.route('/detections', methods=['GET'])
 def get_detections():
@@ -211,6 +217,7 @@ def get_detections():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
 @api_bp.route('/detections/<int:detection_id>', methods=['GET'])
 def get_detection(detection_id):
     try:
@@ -224,6 +231,7 @@ def get_detection(detection_id):
         return jsonify(detection.to_dict())
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 @api_bp.route('/detections/<int:detection_id>/file', methods=['GET'])
 def get_detection_file(detection_id):
@@ -246,6 +254,7 @@ def get_detection_file(detection_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
 @api_bp.route('/detections/<int:detection_id>', methods=['DELETE'])
 def delete_detection(detection_id):
     try:
@@ -264,6 +273,7 @@ def delete_detection(detection_id):
         return jsonify({'success': True, 'message': '删除成功'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 @api_bp.route('/detections/batch_delete', methods=['POST'])
 def batch_delete_detections():

@@ -14,6 +14,10 @@ from app.utils import resolve_stored_file_path
 
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tif', '.tiff'}
 
+
+# --- routing meta ---
+
+
 def load_confidence_scores(detection_row) -> dict:
     raw = getattr(detection_row, 'confidence_scores', None)
     try:
@@ -21,8 +25,10 @@ def load_confidence_scores(detection_row) -> dict:
     except Exception:
         return {}
 
+
 def save_confidence_scores(detection_row, cs_obj: dict) -> None:
     detection_row.confidence_scores = json.dumps(cs_obj, ensure_ascii=False)
+
 
 def update_per_box_entry(detection_row, box_index: int, **fields) -> None:
     cs = load_confidence_scores(detection_row)
@@ -41,6 +47,7 @@ def update_per_box_entry(detection_row, box_index: int, **fields) -> None:
     routing['per_box'] = per_box
     save_confidence_scores(detection_row, cs)
 
+
 def set_detection_dataset_paths(detection_row, dataset_image: str | None, dataset_label: str | None) -> None:
     cs = load_confidence_scores(detection_row)
     routing = cs.setdefault('routing', {})
@@ -54,6 +61,10 @@ def set_detection_dataset_paths(detection_row, dataset_image: str | None, datase
     routing['dataset_finalized'] = bool(dataset_image and dataset_label)
     save_confidence_scores(detection_row, cs)
 
+
+# --- dataset naming ---
+
+
 def normalize_image_ext(path: Path | str) -> str:
     p = Path(path)
     ext = p.suffix.lower() if p.suffix else '.jpg'
@@ -62,6 +73,7 @@ def normalize_image_ext(path: Path | str) -> str:
     if ext == '.jpeg':
         ext = '.jpg'
     return ext
+
 
 def max_dataset_sequence_number(images_dir: Path) -> int:
     """images/ 下纯数字文件名（如 1.jpg）的最大序号。"""
@@ -79,6 +91,7 @@ def max_dataset_sequence_number(images_dir: Path) -> int:
         if n > max_n:
             max_n = n
     return max_n
+
 
 def get_routing_dataset_stem(detection_row) -> str | None:
     raw = getattr(detection_row, 'confidence_scores', None)
@@ -99,6 +112,7 @@ def get_routing_dataset_stem(detection_row) -> str | None:
         if st.isdigit():
             return st
     return None
+
 
 def resolve_dataset_basename(
     dataset_root: Path,
@@ -122,6 +136,10 @@ def resolve_dataset_basename(
     stem = str(next_n)
     return f'{stem}{ext}', stem
 
+
+# --- ingest ---
+
+
 def _read_class_names(dataset_root: Path):
     p = dataset_root / 'labels' / 'classes.txt'
     if not p.is_file():
@@ -129,12 +147,14 @@ def _read_class_names(dataset_root: Path):
     lines = p.read_text(encoding='utf-8', errors='ignore').strip().splitlines()
     return [x.strip() for x in lines if x.strip()]
 
+
 def class_name_to_id(class_name: str, class_names) -> int:
     n = (class_name or '').strip()
     for i, c in enumerate(class_names):
         if c == n:
             return i
     return 0
+
 
 def xyxy_to_yolo_line(class_id: int, x1, y1, x2, y2, w_img: float, h_img: float) -> str:
     w_img = max(float(w_img), 1.0)
@@ -152,11 +172,13 @@ def xyxy_to_yolo_line(class_id: int, x1, y1, x2, y2, w_img: float, h_img: float)
     nh = min(max(nh, 1e-6), 1.0)
     return f'{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}'
 
+
 def bbox_from_detection(det: dict):
     b = det.get('bbox') or []
     if len(b) >= 4:
         return [float(b[0]), float(b[1]), float(b[2]), float(b[3])]
     return None
+
 
 def _parse_detected_objects(detection_row) -> list:
     raw = getattr(detection_row, 'detected_objects', None)
@@ -168,6 +190,7 @@ def _parse_detected_objects(detection_row) -> list:
         return []
     return arr if isinstance(arr, list) else []
 
+
 def _routing_per_box(detection_row) -> list:
     raw = getattr(detection_row, 'confidence_scores', None)
     try:
@@ -176,10 +199,12 @@ def _routing_per_box(detection_row) -> list:
         cs = {}
     return list((cs.get('routing') or {}).get('per_box') or [])
 
+
 def count_pending_boxes(detection_id: int) -> int:
     return int(
         PendingSample.query.filter_by(detection_id=int(detection_id), status='pending').count()
     )
+
 
 def collect_ingest_boxes(detection_row) -> list[dict]:
     """
@@ -232,6 +257,7 @@ def collect_ingest_boxes(detection_row) -> list[dict]:
 
     return [by_idx[k] for k in sorted(by_idx.keys())]
 
+
 def _resolve_ingest_image_path(image_path: str, upload_folder: str | None = None) -> Path | None:
     p = None
     if upload_folder:
@@ -244,15 +270,6 @@ def _resolve_ingest_image_path(image_path: str, upload_folder: str | None = None
         return None
     return Path(p).resolve()
 
-def _dataset_ingest_skipped():
-    try:
-        from flask import current_app, has_request_context
-
-        if has_request_context() and not current_app.config.get('ENABLE_DATASET_INGEST', True):
-            return True
-    except Exception:
-        pass
-    return False
 
 def finalize_detection_dataset(
     dataset_root: Path,
@@ -261,9 +278,11 @@ def finalize_detection_dataset(
     username: str | None = None,
     upload_folder: str | None = None,
 ):
+    """
+    复制原图一次（若尚未存在），写入包含全部框的 labels/{stem}.txt。
+    返回 (image_rel, label_rel, error_msg, box_count)。
+    """
     _ = username
-    if _dataset_ingest_skipped():
-        return None, None, '云端未开启本地数据集写入', 0
     dataset_root = Path(dataset_root).resolve()
     img_path = _resolve_ingest_image_path(image_path, upload_folder)
     if img_path is None:
@@ -300,6 +319,7 @@ def finalize_detection_dataset(
     rel_lbl = f'labels/{stem}.txt'.replace('\\', '/')
     return rel_img, rel_lbl, None, len(lines)
 
+
 def try_finalize_detection_dataset(
     dataset_root: Path,
     detection_row,
@@ -307,15 +327,10 @@ def try_finalize_detection_dataset(
     username: str | None = None,
     upload_folder: str | None = None,
 ):
-    if _dataset_ingest_skipped():
-        return {
-            'finalized': False,
-            'pending_remaining': count_pending_boxes(detection_row.id),
-            'dataset_image': None,
-            'dataset_label': None,
-            'box_count': 0,
-            'message': '云端未开启本地数据集写入',
-        }
+    """
+    当该 detection 无待审核框时，写入/更新整图标注。
+    返回 dict: finalized, pending_remaining, dataset_image, dataset_label, box_count, message
+    """
     pending = count_pending_boxes(detection_row.id)
     if pending > 0:
         return {

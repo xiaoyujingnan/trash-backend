@@ -1,5 +1,5 @@
 {
-  "current_model": "",
-  "model_path": "",
-  "update_time": ""
+  "current_model": "yolo26n-best.pt",
+  "model_path": "detect_model/yolo26n-best.pt",
+  "update_time": "2026-05-24 23:28:28"
 }

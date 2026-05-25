@@ -10,8 +10,11 @@ from typing import Any
 import cv2
 import numpy as np
 
+# --- upload paths ---
+
 def _norm_rel(path: str) -> str:
     return str(path).replace('\\', '/').lstrip('./')
+
 
 def to_upload_relative_path(path, upload_root) -> str | None:
     """
@@ -39,6 +42,7 @@ def to_upload_relative_path(path, upload_root) -> str | None:
         return _norm_rel(rel)
     return _norm_rel(s)
 
+
 def resolve_stored_file_path(stored, upload_root):
     """将库中路径或 /api/files/、/uploads/ 风格 URL 解析为绝对磁盘路径。"""
     if not stored:
@@ -47,6 +51,7 @@ def resolve_stored_file_path(stored, upload_root):
     if not rel:
         return None
     return os.path.normpath(os.path.join(upload_root, rel.replace('/', os.sep)))
+
 
 def safe_remove_file(abs_path):
     if not abs_path:
@@ -58,9 +63,14 @@ def safe_remove_file(abs_path):
     except OSError:
         pass
 
+
+# --- image naming ---
+
+# 与检测、头像、数据集写入等共用
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 
 _FILENAME_FORBIDDEN = frozenset('<>:"/\\|?*')
+
 
 def sanitize_username_for_filename(username: str | None, max_len: int = 40) -> str:
     """
@@ -87,6 +97,7 @@ def sanitize_username_for_filename(username: str | None, max_len: int = 40) -> s
     if len(s) > max_len:
         s = s[:max_len].rstrip('. ')
     return s
+
 
 def detect_style_image_basename(
     user_id: int,
@@ -127,13 +138,19 @@ def detect_style_image_basename(
         return f'{uid}_{slug}_{int(ts_ms)}_detect_{sid}{ver_part}.{ext}'
     return f'{uid}_{int(ts_ms)}_detect_{sid}{ver_part}.{ext}'
 
+
+# --- image preprocess ---
+
+# 检测接口上传单图上限（字节）
 MAX_DETECT_IMAGE_BYTES = 20 * 1024 * 1024
 DETECT_IMAGE_BOX_SIZE = 640
-
+# YOLO 常用灰底 padding
 LETTERBOX_PAD_COLOR = (114, 114, 114)
+
 
 class ImageUploadError(ValueError):
     """用户上传图片不合法（大小、格式等）。"""
+
 
 @dataclass(frozen=True)
 class LetterboxMeta:
@@ -168,6 +185,7 @@ class LetterboxMeta:
             box_size=int(box_size),
         )
 
+
 def letterbox_to_square_bgr(
     image: np.ndarray, size: int = DETECT_IMAGE_BOX_SIZE
 ) -> tuple[np.ndarray, LetterboxMeta]:
@@ -190,6 +208,7 @@ def letterbox_to_square_bgr(
     )
     return out, meta
 
+
 def map_bbox_letterbox_to_orig(bbox: list[float], meta: LetterboxMeta) -> list[float]:
     """将 letterbox 图上的 xyxy 映射回原图像素坐标。"""
     x1, y1, x2, y2 = (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
@@ -208,6 +227,7 @@ def map_bbox_letterbox_to_orig(bbox: list[float], meta: LetterboxMeta) -> list[f
         y1, y2 = y2, y1
     return [x1, y1, x2, y2]
 
+
 def map_detections_to_orig(
     detections: list[dict[str, Any]], meta: LetterboxMeta
 ) -> list[dict[str, Any]]:
@@ -219,6 +239,7 @@ def map_detections_to_orig(
             item['bbox'] = map_bbox_letterbox_to_orig(list(bbox[:4]), meta)
         out.append(item)
     return out
+
 
 def _read_upload_bytes(file_storage, max_bytes: int) -> bytes:
     stream = getattr(file_storage, 'stream', None) or file_storage
@@ -234,6 +255,7 @@ def _read_upload_bytes(file_storage, max_bytes: int) -> bytes:
         raise ImageUploadError(f'图片大小不能超过 {mb}MB')
     return raw
 
+
 def decode_upload_bgr(file_storage, *, max_bytes: int = MAX_DETECT_IMAGE_BYTES) -> tuple[np.ndarray, bytes]:
     """读取上传文件为 BGR 数组，并返回原始字节（用于原图落盘）。"""
     raw = _read_upload_bytes(file_storage, max_bytes)
@@ -242,6 +264,7 @@ def decode_upload_bgr(file_storage, *, max_bytes: int = MAX_DETECT_IMAGE_BYTES) 
     if img is None:
         raise ImageUploadError('无法读取图片，请使用 jpg、png、webp 等常见格式')
     return img, raw
+
 
 def prepare_detect_upload(
     file_storage,
@@ -261,6 +284,7 @@ def prepare_detect_upload(
     letterbox_bgr, meta = letterbox_to_square_bgr(img, box_size)
     return meta, letterbox_bgr
 
+
 def prepare_detect_inference_only(
     file_storage,
     *,
@@ -271,3 +295,4 @@ def prepare_detect_inference_only(
     img, _raw = decode_upload_bgr(file_storage, max_bytes=max_bytes)
     letterbox_bgr, meta = letterbox_to_square_bgr(img, box_size)
     return meta, letterbox_bgr
+

@@ -12,7 +12,9 @@ from app import db
 from app.models import User, UserProfile
 from . import api_bp
 
+# 静态默认头像：`backend/app/uploads/avatars/default_user_avatar.png`（由 /api/files 提供）
 DEFAULT_USER_AVATAR_URL = '/api/files/avatars/default_user_avatar.png'
+
 
 def get_or_create_profile(user_id):
     profile = UserProfile.query.filter_by(user_id=user_id).first()
@@ -23,6 +25,7 @@ def get_or_create_profile(user_id):
     db.session.commit()
     return profile
 
+
 def merge_user_profile(user, profile):
     profile.avatar = normalize_avatar_path(profile.avatar)
     user_dict = user.to_dict()
@@ -30,9 +33,11 @@ def merge_user_profile(user, profile):
     user_dict['nickname'] = user_dict.get('nickname') or user_dict.get('username')
     return user_dict
 
+
 def is_allowed_image(filename):
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     return ext in ALLOWED_IMAGE_EXTENSIONS
+
 
 def normalize_avatar_path(path):
     value = str(path or '').strip()
@@ -48,6 +53,7 @@ def normalize_avatar_path(path):
             return '/api/files/' + value.split(marker, 1)[1]
     return value
 
+
 @api_bp.route('/files/<path:filename>', methods=['GET'])
 def profile_files(filename):
     upload_root = current_app.config['UPLOAD_FOLDER']
@@ -56,6 +62,7 @@ def profile_files(filename):
         return send_from_directory(upload_root, filename)
 
     return jsonify({'success': False, 'message': '文件不存在'}), 404
+
 
 @api_bp.route('/profile', methods=['GET'])
 def get_profile():
@@ -66,6 +73,7 @@ def get_profile():
     profile = get_or_create_profile(user.id)
     merged = merge_user_profile(user, profile)
     return jsonify({'success': True, 'user': merged, 'message': '获取个人资料成功'}), 200
+
 
 @api_bp.route('/profile', methods=['PUT'])
 def update_profile():
@@ -114,6 +122,7 @@ def update_profile():
     merged = merge_user_profile(user, profile)
     return jsonify({'success': True, 'user': merged, 'message': '更新个人资料成功'}), 200
 
+
 @api_bp.route('/profile/password', methods=['PUT'])
 def change_password():
     user, error_response, status = get_current_user()
@@ -147,6 +156,7 @@ def change_password():
     user.email_password_hash = new_hash
     db.session.commit()
     return jsonify({'success': True, 'message': '密码修改成功，请重新登录'}), 200
+
 
 @api_bp.route('/profile/avatar', methods=['POST'])
 def upload_avatar():

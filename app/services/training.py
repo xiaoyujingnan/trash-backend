@@ -14,6 +14,9 @@ from werkzeug.utils import secure_filename
 from app import db
 from app.models import TrainingJob
 
+# --- paths ---
+
+
 def get_training_root(cfg) -> Path:
     """训练目录 backend/training（可由环境变量 TRAINING_ROOT 覆盖）。"""
     backend_root = Path(cfg.get('BACKEND_ROOT') or cfg.get('PROJECT_ROOT') or '.')
@@ -24,6 +27,7 @@ def get_training_root(cfg) -> Path:
             return p.resolve()
         return (backend_root / p).resolve()
     return (backend_root / 'training').resolve()
+
 
 def resolve_training_weights_file(
     upload_root: Path,
@@ -64,11 +68,13 @@ def resolve_training_weights_file(
 
     raise ValueError('仅允许 training/bases/ 中的训练权重')
 
+
 def training_run_name(base_weights_rel: str, job_id: int) -> str:
     """运行名：{权重文件名stem}_{training_job.id}，如 best_12。"""
     name = Path(str(base_weights_rel or '').replace('\\', '/')).name or 'weights.pt'
     stem = secure_filename(Path(name).stem or 'weights') or 'weights'
     return f'{stem}_{int(job_id)}'
+
 
 def run_name_for_job(job: TrainingJob) -> str:
     """从 log_path / output_weights_path 解析运行名；否则用 {stem}_{job.id}。"""
@@ -83,6 +89,7 @@ def run_name_for_job(job: TrainingJob) -> str:
     if job.id:
         return training_run_name(job.base_weights_rel or '', job.id)
     return ''
+
 
 def _results_csv_candidates(train_project_dir: Path, job: TrainingJob) -> list[Path]:
     """列出 results.csv 路径：training/runs/<权重名>_<序号>/results.csv。"""
@@ -106,11 +113,13 @@ def _results_csv_candidates(train_project_dir: Path, job: TrainingJob) -> list[P
         paths.append(train_project_dir / name / 'results.csv')
     return paths
 
+
 def resolve_results_csv_for_job(train_project_dir: Path, job: TrainingJob) -> Path | None:
     for p in _results_csv_candidates(train_project_dir, job):
         if p.is_file():
             return p
     return None
+
 
 def enrich_training_job_dict(job: TrainingJob, cfg) -> dict[str, Any]:
     """为 API 返回补充运行名、是否可读指标等字段。"""
@@ -128,7 +137,11 @@ def enrich_training_job_dict(job: TrainingJob, cfg) -> dict[str, Any]:
     d['base_weights_name'] = Path(base).name if base else ''
     return d
 
+
+# --- device ---
+
 """训练用设备探测（与发起训练同一 Python 环境）。"""
+
 
 def collect_training_device_info() -> dict:
     out: dict = {
@@ -164,6 +177,7 @@ def collect_training_device_info() -> dict:
     out['default_device'] = _recommended_training_device(out)
     return out
 
+
 def _recommended_training_device(info: dict) -> str:
     """与训练 device 参数一致：优先首张 CUDA GPU，其次 MPS，否则 cpu。"""
     devices = info.get('cuda_devices') or []
@@ -173,10 +187,15 @@ def _recommended_training_device(info: dict) -> str:
         return 'mps'
     return 'cpu'
 
+
+# --- monitor ---
+
 _ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
+
 
 def strip_ansi(s: str) -> str:
     return _ANSI.sub('', s)
+
 
 def read_file_tail(path: Path, max_bytes: int = 98304) -> str:
     if not path.is_file():
@@ -187,6 +206,7 @@ def read_file_tail(path: Path, max_bytes: int = 98304) -> str:
         f.seek(max(0, sz - max_bytes))
         raw = f.read()
     return raw.decode('utf-8', errors='replace')
+
 
 def parse_log_epoch(log_tail: str, total_epochs: int) -> dict:
     """从日志尾部解析当前轮次与阶段。"""
@@ -206,12 +226,14 @@ def parse_log_epoch(log_tail: str, total_epochs: int) -> dict:
     elif 'engine\\trainer' in text or 'engine/trainer' in text:
         out['phase'] = 'init'
 
+    # 仅匹配训练 epoch 行（如 `4/20  3.43G  1.139`）；勿用 `.*?`，否则会把验证 batch `62/66 2.0it/s` 误当成轮次
     epoch_pat = re.compile(r'\s+(\d+)/(\d+)\s+\d+(?:\.\d+)?G\s+[\d.]+')
     em = list(epoch_pat.finditer(text))
     if em:
         out['epoch'] = int(em[-1].group(1))
         out['epochs'] = int(em[-1].group(2)) or total_epochs
     return out
+
 
 def _read_csv_last_epoch(csv_path: Path) -> int | None:
     if not csv_path.is_file():
@@ -228,6 +250,7 @@ def _read_csv_last_epoch(csv_path: Path) -> int | None:
     except (TypeError, ValueError):
         return None
 
+
 def _resolve_current_epoch(log_epoch: int | None, csv_epoch: int | None, total_epochs: int) -> int | None:
     """日志中的当前轮次优先；验证阶段日志无 epoch 行时回退 csv 已完成轮次。"""
     total_epochs = max(int(total_epochs or 0), 1)
@@ -236,6 +259,7 @@ def _resolve_current_epoch(log_epoch: int | None, csv_epoch: int | None, total_e
     if csv_epoch and csv_epoch > 0:
         return min(int(csv_epoch), total_epochs)
     return None
+
 
 def _compute_progress_and_eta(
     current_epoch: int,
@@ -262,12 +286,14 @@ def _compute_progress_and_eta(
     eta_seconds = max(0.0, avg_epoch_sec * remaining_epochs)
     return progress_pct, eta_seconds
 
+
 def resolve_train_project_dir(cfg) -> Path:
     pd = Path(cfg['TRAIN_PROJECT_DIR'])
     if pd.is_absolute():
         return pd.resolve()
     training_root = get_training_root(cfg)
     return (training_root / pd).resolve()
+
 
 def _training_log_roots(cfg) -> list[Path]:
     roots: list[Path] = []
@@ -288,6 +314,7 @@ def _training_log_roots(cfg) -> list[Path]:
             out.append(r)
     return out
 
+
 def _safe_resolve_log_path(cfg, log_path: str | None) -> Path | None:
     if not log_path:
         return None
@@ -303,6 +330,7 @@ def _safe_resolve_log_path(cfg, log_path: str | None) -> Path | None:
             continue
         return p
     return None
+
 
 def build_training_live_payload(project_root: Path, cfg, job) -> dict:
     """供轮询：解析当前轮次、进度与 ETA。"""
@@ -349,6 +377,7 @@ def build_training_live_payload(project_root: Path, cfg, job) -> dict:
 
     return {'progress': progress}
 
+
 def _pick_float(row: dict, *keys) -> float | None:
     for k in keys:
         if k in row and row[k] not in (None, ''):
@@ -357,6 +386,7 @@ def _pick_float(row: dict, *keys) -> float | None:
             except (TypeError, ValueError):
                 continue
     return None
+
 
 def _row_to_metrics(row: dict, csv_path: Path) -> dict:
     map50 = _pick_float(row, 'metrics/mAP50(B)', 'mAP50(B)', 'metrics/mAP_0.5')
@@ -401,6 +431,7 @@ def _row_to_metrics(row: dict, csv_path: Path) -> dict:
         'results_csv': str(csv_path).replace('\\', '/'),
     }
 
+
 def load_training_metrics_best_row(project_root: Path, train_project_dir: Path, job: TrainingJob) -> dict | None:
     """读取 results.csv 中 mAP@0.5 最高的一轮指标（与 best.pt 对应）。"""
     _ = project_root
@@ -425,17 +456,22 @@ def load_training_metrics_best_row(project_root: Path, train_project_dir: Path, 
 
     return _row_to_metrics(best_row, csv_path)
 
+
+# --- runner ---
+
 _train_lock = threading.Lock()
 _proc_lock = threading.Lock()
 _active_job_id: int | None = None
 _active_proc: subprocess.Popen | None = None
 _user_abort_job_ids: set[int] = set()
 
+
 def _popen_kwargs():
     """本机以 Windows 为主：新建进程组便于 taskkill /T 结束子进程树。"""
     if sys.platform == 'win32':
         return {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
     return {}
+
 
 def _terminate_pid(pid: int):
     """按 PID 结束进程树（Windows 以 taskkill 为主）。"""
@@ -454,10 +490,12 @@ def _terminate_pid(pid: int):
         except (FileNotFoundError, OSError):
             pass
 
+
 def _terminate_process_tree(proc: subprocess.Popen):
     if proc.poll() is not None:
         return
     _terminate_pid(proc.pid)
+
 
 def _read_pid_from_train_log(log_path: Path) -> int | None:
     """从训练日志头部读取 TRAIN_SUBPROCESS_PID=（与 .pid 文件互为兜底）。"""
@@ -476,10 +514,12 @@ def _read_pid_from_train_log(log_path: Path) -> int | None:
                 return None
     return None
 
+
 def _subprocess_no_window_kwargs() -> dict:
     if sys.platform == 'win32' and hasattr(subprocess, 'CREATE_NO_WINDOW'):
         return {'creationflags': subprocess.CREATE_NO_WINDOW}
     return {}
+
 
 def _find_train_pids_by_run_name(run_name: str) -> list[int]:
     """无 .pid 时按命令行匹配 train.py 与本次 --name（如 best_12，12 为 job.id）。"""
@@ -516,6 +556,7 @@ def _find_train_pids_by_run_name(run_name: str) -> list[int]:
             continue
     return sorted(set(pids))
 
+
 def _resolve_pid_sidecar_paths(job: TrainingJob, training_root: Path) -> tuple[Path | None, Path | None]:
     """与任务记录中 log_path 同目录的 .pid；log_path 相对 training/ 目录。"""
     raw = (job.log_path or '').strip()
@@ -528,6 +569,7 @@ def _resolve_pid_sidecar_paths(job: TrainingJob, training_root: Path) -> tuple[P
         log_path = log_path.resolve()
     pid_path = log_path.with_suffix('.pid')
     return log_path, pid_path
+
 
 def _kill_train_job_subprocess(training_root: Path, job: TrainingJob) -> int:
     """
@@ -559,6 +601,7 @@ def _kill_train_job_subprocess(training_root: Path, job: TrainingJob) -> int:
             pass
     return len(pids_to_kill)
 
+
 def reclaim_stale_training_jobs(app):
     """
     应用启动时：上一进程遗留的 running / queued 任务已无工作线程，结束可能仍存活的子进程并更新状态。
@@ -580,6 +623,7 @@ def reclaim_stale_training_jobs(app):
                 job.message = '服务重启，任务未执行'
             job.finished_at = now
         db.session.commit()
+
 
 def _stop_training_by_pid_file(app, job_id: int) -> tuple[bool, str]:
     """
@@ -611,6 +655,7 @@ def _stop_training_by_pid_file(app, job_id: int) -> tuple[bool, str]:
             db.session.commit()
     return True, '已停止'
 
+
 def stop_training_job(app, job_id: int) -> tuple[bool, str]:
     """
     终止训练子进程：优先本进程内登记的 Popen；否则读 .pid / 日志 / 命令行匹配（适配调试重载）。
@@ -626,6 +671,7 @@ def stop_training_job(app, job_id: int) -> tuple[bool, str]:
         return True, '已停止'
     return _stop_training_by_pid_file(app, job_id)
 
+
 def _arg_path(path: Path, base: Path) -> str:
     """传给 train.py 的路径：在 base 下则用相对路径，否则用绝对路径。"""
     path = path.resolve()
@@ -634,6 +680,7 @@ def _arg_path(path: Path, base: Path) -> str:
         return str(path.relative_to(root)).replace('\\', '/')
     except ValueError:
         return str(path)
+
 
 def start_training_job_async(app, job_id: int):
     """单任务队列：同一时刻仅一个训练线程。"""
@@ -835,3 +882,4 @@ def start_training_job_async(app, job_id: int):
             _cleanup_pid_file(pid_file)
 
     threading.Thread(target=worker, daemon=True).start()
+

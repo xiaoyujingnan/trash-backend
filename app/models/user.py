@@ -1,7 +1,9 @@
 from sqlalchemy import func
 from app import db
 
+# 与 create_app._ensure_default_admin 中自动创建的超级管理员用户名一致
 SUPER_ADMIN_USERNAME = 'admin'
+
 
 class User(db.Model):
     __tablename__ = 'user'
