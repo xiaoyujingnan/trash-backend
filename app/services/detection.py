@@ -166,10 +166,30 @@ def read_current_model_label(upload_folder: str) -> str:
     return str(info.get('current_model') or '').strip()
 
 
+def _discover_detect_model_rel(upload_root: Path) -> str | None:
+    """model_version 未配置时，在 detect_model/ 下找首个可用 .pt。"""
+    base = upload_root / 'detect_model'
+    if not base.is_dir():
+        return None
+    candidates = sorted(
+        (p for p in base.iterdir() if p.is_file() and p.suffix.lower() in ('.pt', '.pth')),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for p in candidates:
+        rel = f'detect_model/{p.name}'
+        ok = resolve_detect_model_rel(str(upload_root), rel, check_usable=True)
+        if ok:
+            return ok
+    return None
+
+
 def bootstrap_detection_model(app) -> str:
     """
-    应用启动时：仅按 model_version.json 的 model_path 加载权重。
-    返回当前可用权重相对路径（相对 UPLOAD_FOLDER）；无配置或文件不可用则为空。
+    应用启动时加载检测权重，优先级：
+    1) 环境变量 DETECT_MODEL_REL
+    2) model_version.json 的 model_path
+    3) detect_model/ 目录下最新 .pt
     """
     upload_root = Path(app.config['UPLOAD_FOLDER']).resolve()
     cfg_path = _ensure_model_version_config(str(upload_root))
@@ -177,7 +197,19 @@ def bootstrap_detection_model(app) -> str:
 
     doc = _read_doc(cfg_path)
     rel = str(doc.get('model_path') or '').strip().replace('\\', '/')
+    env_rel = str(os.getenv('DETECT_MODEL_REL') or '').strip().replace('\\', '/')
+    if env_rel:
+        rel = env_rel
+
     ok = resolve_detect_model_rel(str(upload_root), rel, check_usable=True) if rel else None
+    if not ok:
+        ok = _discover_detect_model_rel(upload_root)
+        if ok:
+            doc['model_path'] = ok
+            doc['current_model'] = _model_label_from_rel(ok)
+            doc['update_time'] = _now_str()
+            _write_doc(cfg_path, doc)
+            logger.info('detection model auto-selected: %s', ok)
 
     if ok:
         app.config['ACTIVE_UPLOADED_MODEL_REL'] = ok
@@ -191,7 +223,11 @@ def bootstrap_detection_model(app) -> str:
     else:
         app.config['ACTIVE_UPLOADED_MODEL_REL'] = ''
         app.config['CURRENT_MODEL_VERSION'] = ''
-        logger.warning('detection model not available at startup (configured: %s)', rel)
+        logger.warning(
+            'detection model not available at startup (configured: %s); '
+            'ensure detect_model/*.pt is deployed or set DETECT_MODEL_REL',
+            rel or '(empty)',
+        )
 
     return ok or ''
 
