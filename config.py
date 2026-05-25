@@ -27,6 +27,7 @@ class Config:
     MAX_CONTENT_LENGTH = int(os.getenv('MAX_CONTENT_LENGTH', str(256 * 1024 * 1024)))
     MAX_DETECT_IMAGE_BYTES = int(os.getenv('MAX_DETECT_IMAGE_BYTES', str(20 * 1024 * 1024)))
     DETECT_IMAGE_BOX_SIZE = int(os.getenv('DETECT_IMAGE_BOX_SIZE', '640'))
+    DETECT_INFER_IMGSZ = int(os.getenv('DETECT_INFER_IMGSZ', os.getenv('DETECT_IMAGE_BOX_SIZE', '640')))
 
     BACKEND_ROOT = _BACKEND_ROOT
     REPO_ROOT = BACKEND_ROOT.parent

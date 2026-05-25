@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 import cv2
-from ultralytics import YOLO
 
 from app import db
 from app.models import PendingSample, User
@@ -24,7 +23,7 @@ _DETECT_MODEL_PREFIX = 'detect_model/'
 
 logger = logging.getLogger(__name__)
 
-_yolo_cache: dict[str, YOLO] = {}
+_yolo_cache: dict[str, Any] = {}
 
 
 def _configure_torch_threads() -> None:
@@ -37,18 +36,20 @@ def _configure_torch_threads() -> None:
         pass
 
 
-_configure_torch_threads()
+def _get_yolo(weights_path: str) -> Any:
+    from ultralytics import YOLO
 
-
-def _get_yolo(weights_path: str) -> YOLO:
     path = str(Path(weights_path).resolve())
     if path not in _yolo_cache:
+        _configure_torch_threads()
         _yolo_cache[path] = YOLO(path)
     return _yolo_cache[path]
 
 
 def _warmup_yolo(weights_path: str, *, imgsz: int = 640) -> None:
-    """启动时预热，避免首次用户检测承担模型加载 + 编译开销。"""
+    """可选预热；Render 免费 512MB 实例请勿在启动时调用。"""
+    if os.getenv('DETECT_WARMUP_ON_STARTUP', '').lower() not in ('1', 'true', 'yes', 'on'):
+        return
     try:
         import numpy as np
 
@@ -313,25 +314,14 @@ def bootstrap_detection_model(app) -> str:
         logger.info('detection model config initialized: %s', ok)
 
     if ok:
-        _warmup_yolo(str((upload_root / ok).resolve()))
+        label = _model_label_from_rel(ok) or str(doc.get('current_model') or '').strip()
         app.config['ACTIVE_UPLOADED_MODEL_REL'] = ok
-        info = get_model_version_info(str(upload_root))
-        app.config['CURRENT_MODEL_VERSION'] = info.get('current_model') or ''
-        if not info.get('model_path_resolved'):
-            app.config['ACTIVE_UPLOADED_MODEL_REL'] = ''
-            app.config['CURRENT_MODEL_VERSION'] = ''
-            ok = ''
-            _log_detect_model_diagnostics(upload_root, backend_root)
-            logger.warning(
-                'detection model file exists but failed to load (configured: %s)',
-                rel or '(empty)',
-            )
-        else:
-            logger.info(
-                'detection model ready: %s (%s)',
-                ok,
-                app.config['CURRENT_MODEL_VERSION'] or 'unversioned',
-            )
+        app.config['CURRENT_MODEL_VERSION'] = label
+        logger.info(
+            'detection model configured (lazy load on first detect): %s (%s)',
+            ok,
+            label or 'unversioned',
+        )
     else:
         app.config['ACTIVE_UPLOADED_MODEL_REL'] = ''
         app.config['CURRENT_MODEL_VERSION'] = ''
@@ -478,13 +468,16 @@ class DetectionService:
                     raise ValueError("无法读取图像文件")
                 infer_img = display_img
 
+            infer_imgsz = int(os.getenv('DETECT_INFER_IMGSZ', '640'))
+            infer_imgsz = max(320, min(1280, infer_imgsz))
+
             results = model.predict(
                 infer_img,
                 conf=conf,
                 iou=iou,
                 verbose=False,
                 device='cpu',
-                imgsz=640,
+                imgsz=infer_imgsz,
             )
 
             detected_objects = []
